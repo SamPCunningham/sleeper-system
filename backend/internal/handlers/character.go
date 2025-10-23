@@ -37,13 +37,43 @@ func (h *CharacterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if user is GM
+	var gmUserID int
+	err := h.db.Get(&gmUserID, "SELECT gm_user_id FROM campaigns WHERE id = $1", req.CampaignID)
+	if err != nil {
+		http.Error(w, "Campaign not found", http.StatusNotFound)
+		return
+	}
+
+	isGM := gmUserID == userID
+	var assignedUserID *int
+
+	if isGM {
+		// GM can assign to anyone (or leave unassigned)
+		assignedUserID = req.AssignedUserID
+	} else {
+		// Players can only create for themselves
+		// Check if they already have a character in this campaign
+		var count int
+		err = h.db.Get(&count, "SELECT COUNT(*) FROM characters WHERE campaign_id = $1 AND user_id = $2", req.CampaignID, userID)
+		if err != nil {
+			http.Error(w, "Error checking existing characters", http.StatusInternalServerError)
+			return
+		}
+		if count > 0 {
+			http.Error(w, "You already have a character in this campaign", http.StatusConflict)
+			return
+		}
+		assignedUserID = &userID
+	}
+
 	var character models.Character
 	query := `
 		INSERT INTO characters (campaign_id, user_id, name, skill_name, skill_modifier, weakness_name, weakness_modifier)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, campaign_id, user_id, name, skill_name, skill_modifier, weakness_name, weakness_modifier, max_daily_dice, created_at
 	`
-	err := h.db.QueryRowx(query, req.CampaignID, userID, req.Name, req.SkillName, req.SkillModifier, req.WeaknessName, req.WeaknessModifier).StructScan(&character)
+	err = h.db.QueryRowx(query, req.CampaignID, assignedUserID, req.Name, req.SkillName, req.SkillModifier, req.WeaknessName, req.WeaknessModifier).StructScan(&character)
 	if err != nil {
 		http.Error(w, "Error creating character", http.StatusInternalServerError)
 		return
@@ -73,6 +103,11 @@ func (h *CharacterHandler) ListByCampaign(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		http.Error(w, "Error fetching characters", http.StatusInternalServerError)
 		return
+	}
+
+	// Return empty array instead of null
+	if characters == nil {
+		characters = []models.Character{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

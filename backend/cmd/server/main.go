@@ -63,6 +63,7 @@ func main() {
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Get("/api/campaigns/{id}", campaignHandler.Get)
 		r.Post("/api/campaigns/{id}/increment-day", campaignHandler.IncrementDay)
+		r.Get("/api/campaigns/{id}/users", campaignHandler.ListUsers)
 
 		r.Post("/api/characters", characterHandler.Create)
 		r.Get("/api/campaigns/{campaignId}/characters", characterHandler.ListByCampaign)

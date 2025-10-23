@@ -22,4 +22,5 @@ type CreateCharacterRequest struct {
 	SkillModifier    int     `json:"skill_modifier"`
 	WeaknessName     *string `json:"weakness_name"`
 	WeaknessModifier int     `json:"weakness_modifier"`
+	AssignedUserID   *int    `json:"assigned_user_id"` // GM can assign to specific user
 }

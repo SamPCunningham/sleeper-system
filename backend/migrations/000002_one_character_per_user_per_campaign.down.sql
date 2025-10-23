@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_one_active_char_per_user_campaign;

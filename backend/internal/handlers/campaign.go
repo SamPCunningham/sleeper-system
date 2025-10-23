@@ -136,3 +136,35 @@ func (h *CampaignHandler) IncrementDay(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(campaign)
 }
+
+func (h *CampaignHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	campaignID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "Invalid campaign ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get all users who have characters in this campaign, plus the GM
+	query := `
+		SELECT DISTINCT u.id, u.username, u.email, u.created_at
+		FROM users u
+		LEFT JOIN characters c ON u.id = c.user_id AND c.campaign_id = $1
+		LEFT JOIN campaigns camp ON u.id = camp.gm_user_id AND camp.id = $1
+		WHERE c.id IS NOT NULL OR camp.id IS NOT NULL
+		ORDER BY u.username ASC
+	`
+
+	var users []models.User
+	err = h.db.Select(&users, query, campaignID)
+	if err != nil {
+		http.Error(w, "Error fetching users", http.StatusInternalServerError)
+		return
+	}
+
+	if users == nil {
+		users = []models.User{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
