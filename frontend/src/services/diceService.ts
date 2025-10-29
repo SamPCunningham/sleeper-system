@@ -30,6 +30,9 @@ export const diceService = {
     d20_roll: number;
     action_type?: string;
     notes?: string;
+    challenge_id?: number;
+    skill_applied: boolean;
+    other_modifiers: number;
   }): Promise<RollHistory> => {
     const response = await api.post<RollHistory>('/rolls', data);
     return response.data;

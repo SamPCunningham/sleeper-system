@@ -39,7 +39,7 @@ npm run dev
 ### Development
 
 - Backend runs on: http://localhost:8090
-- Frontend runs on: http://localhost:5173
+- Frontend runs on: http://localhost:5175
 - Database runs on: localhost:5432
 
 ### Health Check
