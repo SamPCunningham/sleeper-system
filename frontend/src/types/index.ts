@@ -56,3 +56,20 @@ export interface RollHistory {
   notes: string | null;
   created_at: string;
 }
+
+export interface Challenge {
+  id: number;
+  campaign_id: number;
+  created_by_user_id: number;
+  description: string;
+  difficulty_modifier: number;
+  is_group_challenge: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ChallengeWithStats extends Challenge {
+  total_attempts: number;
+  successful_attempts: number;
+  failed_attempts: number;
+}
