@@ -35,6 +35,7 @@ func main() {
 	campaignHandler := handlers.NewCampaignHandler(db)
 	characterHandler := handlers.NewCharacterHandler(db)
 	diceHandler := handlers.NewDiceHandler(db)
+	challengeHandler := handlers.NewChallengeHandler(db)
 
 	r := chi.NewRouter()
 
@@ -76,6 +77,10 @@ func main() {
 		r.Post("/api/rolls", diceHandler.RecordRoll)
 		r.Get("/api/rolls", diceHandler.GetRollHistory)
 		r.Post("/api/characters/{characterId}/dice-pool/manual", diceHandler.ManualRollPool)
+
+		r.Post("/api/challenges", challengeHandler.Create)
+		r.Get("/api/campaigns/{campaignId}/challenges", challengeHandler.ListByCampaign)
+		r.Post("/api/challenges/{id}/complete", challengeHandler.Complete)
 	})
 
 	port := os.Getenv("PORT")
