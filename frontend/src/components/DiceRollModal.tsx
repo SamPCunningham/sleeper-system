@@ -24,26 +24,22 @@ export default function DiceRollModal({
   const [skillApplied, setSkillApplied] = useState(false);
   const [otherModifiers, setOtherModifiers] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
-  const [success, setSuccess] = useState<boolean | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
   const [useManual, setUseManual] = useState(false);
 
   const getModifiedD6 = () => {
     let modified = selectedDie.die_result;
     
-    // Apply skill if checked
     if (skillApplied) {
       modified += character.skill_modifier;
     }
     
-    // Apply other modifiers
     modified += otherModifiers;
     
-    // Apply challenge difficulty
     if (challenge) {
       modified += challenge.difficulty_modifier;
     }
     
-    // Keep in bounds
     if (modified < 1) modified = 1;
     if (modified > 6) modified = 6;
     
@@ -52,86 +48,91 @@ export default function DiceRollModal({
 
   const modifiedD6 = getModifiedD6();
 
-  const rollD20 = () => {
-    const result = Math.floor(Math.random() * 20) + 1;
-    setD20Result(result);
-    const calculatedSuccess = calculateSuccess(modifiedD6, result);
-    setSuccess(calculatedSuccess);
-  };
-
-  const handleManualEntry = () => {
-    const result = Number(manualD20);
-    if (result < 1 || result > 20) {
-      alert('Please enter a number between 1 and 20');
-      return;
-    }
-    setD20Result(result);
-    const calculatedSuccess = calculateSuccess(modifiedD6, result);
-    setSuccess(calculatedSuccess);
-  };
-
-  const calculateSuccess = (d6: number, d20: number): boolean => {
-    switch (d6) {
-      case 6:
-        return true;
-      case 5:
-        return d20 > 10;
-      case 3:
-      case 4:
-        return d20 > 15;
-      case 1:
-      case 2:
-        return false;
-      default:
-        return false;
-    }
-  };
-
   const getSuccessThreshold = (d6: number): string => {
     switch (d6) {
       case 6:
         return 'Guaranteed Success';
       case 5:
-        return 'Need 11+ (50%)';
+        return '11-20: Success | 1-10: Neutral';
       case 3:
       case 4:
-        return 'Need 16+ (25%)';
+        return '16-20: Success | 6-15: Neutral | 1-5: Failure';
       case 1:
       case 2:
-        return 'Cannot Succeed';
+        return '11-20: Neutral | 1-10: Failure';
       default:
         return '';
     }
   };
 
-  const handleSubmit = async () => {
-    if (d20Result === null) {
-      if (useManual) {
-        handleManualEntry();
-      } else {
-        rollD20();
-      }
-      return;
+  const getOutcomeColor = (outcome: string) => {
+    switch (outcome) {
+      case 'success':
+        return 'border-green-600 text-green-600 bg-green-50';
+      case 'neutral':
+        return 'border-yellow-600 text-yellow-600 bg-yellow-50';
+      case 'failure':
+        return 'border-red-600 text-red-600 bg-red-50';
+      default:
+        return 'border-gray-600 text-gray-600 bg-gray-50';
     }
+  };
 
+  const getOutcomeLabel = (outcome: string) => {
+    switch (outcome) {
+      case 'success':
+        return 'SUCCESS!';
+      case 'neutral':
+        return 'NEUTRAL';
+      case 'failure':
+        return 'FAILURE';
+      default:
+        return 'UNKNOWN';
+    }
+  };
+
+  const handleRollAndSubmit = async (d20: number) => {
+    setD20Result(d20);
     setIsRolling(true);
+    
     try {
-      await diceService.recordRoll({
+      const result = await diceService.recordRoll({
         character_id: character.id,
         pool_dice_id: selectedDie.id,
-        d20_roll: d20Result,
+        d20_roll: d20,
         action_type: actionType || undefined,
         notes: notes || undefined,
         challenge_id: challenge?.id,
         skill_applied: skillApplied,
         other_modifiers: otherModifiers,
       });
-      onSuccess();
+      
+      // Backend returns the outcome
+      setOutcome(result.outcome);
+      setIsRolling(false);
+      
+      // Wait a moment so user can see the result, then close
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
     } catch (error) {
       console.error('Failed to record roll:', error);
-    } finally {
       setIsRolling(false);
     }
+  };
+
+  const handleAutoRoll = () => {
+    const result = Math.floor(Math.random() * 20) + 1;
+    handleRollAndSubmit(result);
+  };
+
+  const handleManualSubmit = () => {
+    const result = Number(manualD20);
+    if (result < 1 || result > 20) {
+      alert('Please enter a number between 1 and 20');
+      return;
+    }
+    handleRollAndSubmit(result);
   };
 
   return (
@@ -139,7 +140,6 @@ export default function DiceRollModal({
       <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <h3 className="text-xl font-bold mb-4">Roll for {character.name}</h3>
 
-        {/* Challenge Info */}
         {challenge && (
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
             <p className="text-sm font-medium text-blue-900">Challenge:</p>
@@ -150,12 +150,10 @@ export default function DiceRollModal({
           </div>
         )}
 
-        {/* Show selected d6 */}
         <div className="mb-4 text-center">
           <p className="text-sm text-gray-600 mb-2">Base d6: {selectedDie.die_result}</p>
           
-          {/* Modifiers */}
-          {d20Result === null && (
+          {!isRolling && outcome === null && (
             <div className="space-y-2 mb-3">
               {character.skill_name && (
                 <label className="flex items-center justify-center gap-2 text-sm">
@@ -186,131 +184,131 @@ export default function DiceRollModal({
           <div className="inline-flex items-center justify-center w-16 h-16 text-2xl font-bold rounded border-2 border-blue-600 text-blue-600 bg-blue-50">
             {modifiedD6}
           </div>
-          <p className="text-sm text-gray-600 mt-2">
+          <p className="text-sm text-gray-600 mt-2 whitespace-pre-line">
             {getSuccessThreshold(modifiedD6)}
           </p>
         </div>
 
-        {/* d20 Result */}
-        {d20Result !== null && (
+        {isRolling ? (
           <div className="mb-6 text-center">
-            <p className="text-sm text-gray-600 mb-2">d20 Result:</p>
-            <div className={`inline-flex items-center justify-center w-20 h-20 text-3xl font-bold rounded border-4 ${
-              success 
-                ? 'border-green-600 text-green-600 bg-green-50' 
-                : 'border-red-600 text-red-600 bg-red-50'
-            }`}>
-              {d20Result}
+            <div className="inline-flex items-center justify-center w-20 h-20 text-3xl font-bold rounded border-4 border-blue-600 text-blue-600 bg-blue-50">
+              <span className="animate-pulse">...</span>
             </div>
-            <p className={`text-lg font-bold mt-2 ${success ? 'text-green-600' : 'text-red-600'}`}>
-              {success ? 'SUCCESS!' : 'FAILURE'}
+            <p className="text-lg font-bold mt-2 text-blue-600">
+              Rolling...
             </p>
           </div>
-        )}
+        ) : outcome !== null && d20Result !== null ? (
+          <div className="mb-6 text-center">
+            <p className="text-sm text-gray-600 mb-2">d20 Result:</p>
+            <div className={`inline-flex items-center justify-center w-20 h-20 text-3xl font-bold rounded border-4 ${getOutcomeColor(outcome)}`}>
+              {d20Result}
+            </div>
+            <p className={`text-lg font-bold mt-2 ${
+              outcome === 'success' ? 'text-green-600' : 
+              outcome === 'neutral' ? 'text-yellow-600' : 
+              'text-red-600'
+            }`}>
+              {getOutcomeLabel(outcome)}
+            </p>
+          </div>
+        ) : null}
 
-        {/* Roll mode toggle */}
-        {d20Result === null && (
-          <div className="mb-4">
-            <div className="flex gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => setUseManual(false)}
-                className={`flex-1 py-2 px-4 rounded ${
-                  !useManual 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                Auto Roll
-              </button>
-              <button
-                type="button"
-                onClick={() => setUseManual(true)}
-                className={`flex-1 py-2 px-4 rounded ${
-                  useManual 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                Manual Entry
-              </button>
+        {!isRolling && outcome === null && (
+          <>
+            <div className="mb-4">
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setUseManual(false)}
+                  className={`flex-1 py-2 px-4 rounded ${
+                    !useManual 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Auto Roll
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseManual(true)}
+                  className={`flex-1 py-2 px-4 rounded ${
+                    useManual 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Manual Entry
+                </button>
+              </div>
+
+              {useManual && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Enter your d20 roll:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={manualD20}
+                    onChange={(e) => setManualD20(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="1-20"
+                    autoFocus
+                  />
+                </div>
+              )}
             </div>
 
-            {useManual && (
+            <div className="space-y-4">
+              {!challenge && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Action Type (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={actionType}
+                    onChange={(e) => setActionType(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., Charisma Check, Combat Attack"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Enter your d20 roll:
+                  Notes (optional)
                 </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={manualD20}
-                  onChange={(e) => setManualD20(e.target.value)}
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="1-20"
-                  autoFocus
+                  rows={2}
+                  placeholder="Add any notes..."
                 />
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Action details */}
-        <div className="space-y-4">
-          {!challenge && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Action Type (optional)
-              </label>
-              <input
-                type="text"
-                value={actionType}
-                onChange={(e) => setActionType(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., Charisma Check, Combat Attack"
-                disabled={d20Result !== null}
-              />
             </div>
-          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notes (optional)
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              rows={2}
-              placeholder="Add any notes..."
-              disabled={d20Result !== null}
-            />
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-end gap-2 mt-6">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:text-gray-900"
-            disabled={isRolling}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isRolling || (useManual && d20Result === null && !manualD20)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-          >
-            {d20Result === null 
-              ? useManual ? 'Submit Roll' : 'Roll d20' 
-              : isRolling 
-                ? 'Recording...' 
-                : 'Record Roll'}
-          </button>
-        </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={useManual ? handleManualSubmit : handleAutoRoll}
+                disabled={useManual && !manualD20}
+                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+              >
+                {useManual ? 'Submit Roll' : 'Roll d20'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

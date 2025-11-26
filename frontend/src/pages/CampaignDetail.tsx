@@ -10,6 +10,7 @@ import CreateCharacterModal from '../components/CreateCharacterModal';
 import CreateChallengeModal from '../components/CreateChallengeModal';
 import ChallengeList from '../components/ChallengeList';
 import DiceRollModal from '../components/DiceRollModal';
+import RollHistoryFeed from '../components/RollHistoryFeed';
 import type { Campaign, Character, DicePool, ChallengeWithStats, PoolDie } from '../types';
 
 export default function CampaignDetail() {
@@ -25,6 +26,8 @@ export default function CampaignDetail() {
   
   const [showCreateCharacterModal, setShowCreateCharacterModal] = useState(false);
   const [showCreateChallengeModal, setShowCreateChallengeModal] = useState(false);
+
+  const [refreshCounter, setRefreshCounter] = useState(0);
   
   // For dice rolling
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -105,11 +108,18 @@ export default function CampaignDetail() {
       return;
     }
 
-    // Set up for rolling
+    // Find first available die
+    const availableDie = pool.dice.find((d) => !d.is_used);
+    if (!availableDie) {
+      alert('No available dice!');
+      return;
+    }
+
+    // Set up for rolling with auto-selected die
     setSelectedChallenge(challenge);
     setSelectedCharacter(myCharacter);
-    // Don't auto-select a die - let them choose in CharacterCard
-  };
+    setSelectedDie(availableDie); // Auto-select first available die
+};
 
   const handleCompleteChallenge = async (challengeId: number) => {
     try {
@@ -132,6 +142,7 @@ export default function CampaignDetail() {
     setSelectedCharacter(null);
     setSelectedDie(null);
     setSelectedChallenge(null);
+    setRefreshCounter(prev => prev + 1);
     loadCampaignData(); // Refresh everything
   };
 
@@ -203,6 +214,14 @@ export default function CampaignDetail() {
             isGM={!!isGM}
             onAttemptChallenge={handleAttemptChallenge}
             onCompleteChallenge={handleCompleteChallenge}
+          />
+        </div>
+
+        {/* Roll History Feed */}
+        <div className="mb-8">
+          <RollHistoryFeed 
+            campaignId={campaign.id} 
+            refreshTrigger={refreshCounter}
           />
         </div>
 

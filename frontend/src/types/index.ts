@@ -53,7 +53,12 @@ export interface RollHistory {
   d20_roll: number | null;
   action_type: string | null;
   success: boolean | null;
+  outcome: string;
   notes: string | null;
+  challenge_id: number | null;
+  skill_applied: boolean;
+  other_modifiers: number;
+  modified_d6: number | null;
   created_at: string;
 }
 
@@ -72,4 +77,8 @@ export interface ChallengeWithStats extends Challenge {
   total_attempts: number;
   successful_attempts: number;
   failed_attempts: number;
+}
+
+export interface RollHistoryWithCharacter extends RollHistory {
+  character_name: string;
 }

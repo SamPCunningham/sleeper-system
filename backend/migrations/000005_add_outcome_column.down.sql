@@ -1,0 +1,1 @@
+ALTER TABLE roll_history DROP COLUMN IF EXISTS outcome;

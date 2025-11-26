@@ -38,11 +38,17 @@ type RollHistory struct {
 	PoolDiceID     *int      `json:"pool_dice_id" db:"pool_dice_id"`
 	D20Roll        *int      `json:"d20_roll" db:"d20_roll"`
 	ActionType     *string   `json:"action_type" db:"action_type"`
-	Success        *bool     `json:"success" db:"success"`
+	Success        *bool     `json:"success" db:"success"` // Keep for backward compatibility
+	Outcome        string    `json:"outcome" db:"outcome"` // Add this
 	Notes          *string   `json:"notes" db:"notes"`
 	ChallengeID    *int      `json:"challenge_id" db:"challenge_id"`
 	SkillApplied   bool      `json:"skill_applied" db:"skill_applied"`
 	OtherModifiers int       `json:"other_modifiers" db:"other_modifiers"`
 	ModifiedD6     *int      `json:"modified_d6" db:"modified_d6"`
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+}
+
+type RollHistoryWithCharacter struct {
+	RollHistory
+	CharacterName string `json:"character_name" db:"character_name"`
 }

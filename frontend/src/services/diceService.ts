@@ -1,5 +1,5 @@
 import api from './api';
-import type { DicePool, RollHistory } from '../types';
+import type { DicePool, RollHistory, RollHistoryWithCharacter } from '../types';
 
 export const diceService = {
   rollNewPool: async (characterId: number): Promise<DicePool> => {
@@ -42,4 +42,9 @@ export const diceService = {
     const response = await api.get<RollHistory[]>(`/rolls?character_id=${characterId}`);
     return response.data;
   },
+
+  getCampaignRollHistory: async (campaignId: number): Promise<RollHistoryWithCharacter[]> => {
+    const response = await api.get<RollHistoryWithCharacter[]>(`/rolls?campaign_id=${campaignId}`);
+    return response.data;
+  }
 };

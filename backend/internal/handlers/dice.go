@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -148,6 +149,33 @@ func (h *DiceHandler) UseDie(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(die)
 }
 
+// calculateOutcome determines the outcome based on the dice mechanic
+func calculateOutcome(d6Result, d20Roll int) string {
+	switch d6Result {
+	case 6:
+		return "success"
+	case 5:
+		if d20Roll >= 11 {
+			return "success"
+		}
+		return "neutral"
+	case 3, 4:
+		if d20Roll >= 16 {
+			return "success"
+		} else if d20Roll >= 6 {
+			return "neutral"
+		}
+		return "failure"
+	case 1, 2:
+		if d20Roll >= 11 {
+			return "neutral"
+		}
+		return "failure"
+	default:
+		return "neutral"
+	}
+}
+
 // RecordRoll records a d20 roll in history
 func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateRollRequest
@@ -164,17 +192,61 @@ func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate success based on d6 and d20
-	success := calculateSuccess(d6Result, req.D20Roll)
+	// Calculate modified d6
+	modifiedD6 := d6Result
+	if req.SkillApplied {
+		// Get character's skill modifier
+		var skillMod int
+		err = h.db.Get(&skillMod, "SELECT skill_modifier FROM characters WHERE id = $1", req.CharacterID)
+		if err != nil {
+			log.Printf("Error fetching skill modifier: %v", err)
+		} else {
+			log.Printf("Applying skill modifier: %d to base d6: %d", skillMod, modifiedD6)
+			modifiedD6 += skillMod
+		}
+	}
+	modifiedD6 += req.OtherModifiers
+	// Cap at 1-6
+	if modifiedD6 < 1 {
+		modifiedD6 = 1
+	}
+	if modifiedD6 > 6 {
+		modifiedD6 = 6
+	}
+
+	log.Printf("Final modified d6: %d (base: %d, skill: %v, other: %d)",
+		modifiedD6, d6Result, req.SkillApplied, req.OtherModifiers)
+
+	// Calculate outcome based on modified d6 and d20
+	outcome := calculateOutcome(modifiedD6, req.D20Roll)
+
+	// Also calculate old success boolean for backward compatibility
+	var success *bool
+	if outcome == "success" {
+		s := true
+		success = &s
+	} else if outcome == "failure" {
+		s := false
+		success = &s
+	}
+	// neutral = nil
 
 	var rollHistory models.RollHistory
 	query := `
-		INSERT INTO roll_history (character_id, pool_dice_id, d20_roll, action_type, success, notes)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, character_id, pool_dice_id, d20_roll, action_type, success, notes, created_at
+		INSERT INTO roll_history (
+			character_id, pool_dice_id, d20_roll, action_type, success, outcome, notes,
+			challenge_id, skill_applied, other_modifiers, modified_d6
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, character_id, pool_dice_id, d20_roll, action_type, success, outcome, notes,
+		          challenge_id, skill_applied, other_modifiers, modified_d6, created_at
 	`
-	err = h.db.QueryRowx(query, req.CharacterID, req.PoolDiceID, req.D20Roll, req.ActionType, success, req.Notes).StructScan(&rollHistory)
+	err = h.db.QueryRowx(query,
+		req.CharacterID, req.PoolDiceID, req.D20Roll, req.ActionType, success, outcome, req.Notes,
+		req.ChallengeID, req.SkillApplied, req.OtherModifiers, modifiedD6,
+	).StructScan(&rollHistory)
 	if err != nil {
+		log.Printf("Error recording roll: %v", err)
 		http.Error(w, "Error recording roll", http.StatusInternalServerError)
 		return
 	}
@@ -191,45 +263,55 @@ func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(rollHistory)
 }
 
-// calculateSuccess determines if a roll succeeded based on the dice mechanic
-func calculateSuccess(d6Result, d20Roll int) bool {
-	var threshold int
-	switch d6Result {
-	case 6:
-		return true // Guaranteed success
-	case 5:
-		threshold = 10 // 50% (11+ succeeds)
-	case 3, 4:
-		threshold = 15 // 25% (16+ succeeds)
-	case 1, 2:
-		return false // Can only be neutral or negative
-	}
-	return d20Roll > threshold
-}
-
 // GetRollHistory gets roll history for a character or campaign
 func (h *DiceHandler) GetRollHistory(w http.ResponseWriter, r *http.Request) {
 	characterID := r.URL.Query().Get("character_id")
+	campaignID := r.URL.Query().Get("campaign_id")
 
-	var rolls []models.RollHistory
+	var rolls []models.RollHistoryWithCharacter
 	var err error
 
 	if characterID != "" {
+		// Get rolls for a specific character
 		query := `
-			SELECT id, character_id, pool_dice_id, d20_roll, action_type, success, notes, created_at
-			FROM roll_history
-			WHERE character_id = $1
-			ORDER BY created_at DESC
-			LIMIT 50
-		`
+				SELECT 
+					rh.id, rh.character_id, rh.pool_dice_id, rh.d20_roll, 
+					rh.action_type, rh.success, rh.notes, rh.created_at,
+					rh.challenge_id, rh.skill_applied, rh.other_modifiers, rh.modified_d6,
+					rh.outcome,
+					c.name as character_name
+				FROM roll_history rh
+				JOIN characters c ON rh.character_id = c.id
+				WHERE rh.character_id = $1
+				ORDER BY rh.created_at DESC
+				LIMIT 50
+			`
 		err = h.db.Select(&rolls, query, characterID)
+	} else if campaignID != "" {
+		// Get rolls for entire campaign
+		query := `
+				SELECT 
+					rh.id, rh.character_id, rh.pool_dice_id, rh.d20_roll, 
+					rh.action_type, rh.success, rh.notes, rh.created_at,
+					rh.challenge_id, rh.skill_applied, rh.other_modifiers, rh.modified_d6,
+					rh.outcome,
+					c.name as character_name
+				FROM roll_history rh
+				JOIN characters c ON rh.character_id = c.id
+				WHERE c.campaign_id = $1
+				ORDER BY rh.created_at DESC
+				LIMIT 100
+			`
+		err = h.db.Select(&rolls, query, campaignID)
 	} else {
-		http.Error(w, "character_id query parameter required", http.StatusBadRequest)
+		http.Error(w, "character_id or campaign_id query parameter required", http.StatusBadRequest)
 		return
 	}
 
 	if err != nil {
+		log.Printf("Error fetching roll history: %v", err)
 		http.Error(w, "Error fetching roll history", http.StatusInternalServerError)
+
 		return
 	}
 
