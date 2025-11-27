@@ -8,15 +8,17 @@ import (
 	"github.com/SamPCunningham/sleeper-system/internal/database"
 	"github.com/SamPCunningham/sleeper-system/internal/middleware"
 	"github.com/SamPCunningham/sleeper-system/internal/models"
+	"github.com/SamPCunningham/sleeper-system/internal/websocket"
 	"github.com/go-chi/chi/v5"
 )
 
 type CampaignHandler struct {
-	db *database.Database
+	db  *database.Database
+	hub *websocket.Hub
 }
 
-func NewCampaignHandler(db *database.Database) *CampaignHandler {
-	return &CampaignHandler{db: db}
+func NewCampaignHandler(db *database.Database, hub *websocket.Hub) *CampaignHandler {
+	return &CampaignHandler{db: db, hub: hub}
 }
 
 func (h *CampaignHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +134,12 @@ func (h *CampaignHandler) IncrementDay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error incrementing day", http.StatusInternalServerError)
 		return
 	}
+
+	// Broadcast day increment to all connected clients
+	h.hub.BroadcastToCampaign(campaignID, websocket.MessageTypeDayIncremented, map[string]any{
+		"campaign_id": campaignID,
+		"current_day": campaign.CurrentDay,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(campaign)
