@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { campaignService } from '../services/campaignService';
 import { characterService } from '../services/characterService';
 import { diceService } from '../services/diceService';
 import { challengeService } from '../services/challengeService';
+import { useWebSocket } from '../hooks/useWebSocket';
 import CharacterCard from '../components/CharacterCard';
 import CreateCharacterModal from '../components/CreateCharacterModal';
 import CreateChallengeModal from '../components/CreateChallengeModal';
@@ -33,6 +34,79 @@ export default function CampaignDetail() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [selectedDie, setSelectedDie] = useState<PoolDie | null>(null);
   const [selectedChallenge, setSelectedChallenge] = useState<ChallengeWithStats | null>(null);
+
+  // WebSocket handlers
+  const onWsRollComplete = useCallback((payload: any) => {
+    console.log('Roll complete:', payload);
+    // Trigger roll history refresh
+    setRefreshCounter(prev => prev + 1);
+    
+    // Update the dice pool for this character to mark the die as used
+    const characterId = payload.character_id;
+    setDicePools(prev => {
+      const pool = prev[characterId];
+      if (!pool) return prev;
+      
+      return {
+        ...prev,
+        [characterId]: {
+          ...pool,
+          dice: pool.dice.map(die => 
+            die.id === payload.roll?.pool_dice_id 
+              ? { ...die, is_used: true }
+              : die
+          ),
+        },
+      };
+    });
+  }, []);
+
+  const handleDicePoolUpdated = useCallback((payload: any) => {
+    console.log('Dice pool updated:', payload);
+    const { character_id, pool } = payload;
+    setDicePools(prev => ({
+      ...prev,
+      [character_id]: pool,
+    }));
+  }, []);
+
+  const handleChallengeUpdate = useCallback((payload: any) => {
+    console.log('Challenge update:', payload);
+    const { action, challenge } = payload;
+    
+    if (action === 'created') {
+      // Add new challenge to the list
+      setChallenges(prev => [{
+        ...challenge,
+        total_attempts: 0,
+        successful_attempts: 0,
+        failed_attempts: 0,
+      }, ...prev]);
+    } else if (action === 'completed') {
+      // Remove completed challenge from active list
+      setChallenges(prev => prev.filter(c => c.id !== challenge.id));
+    }
+  }, []);
+
+  const handleDayIncremented = useCallback((payload: any) => {
+    console.log('Day incremented:', payload);
+    setCampaign(prev => prev ? {
+      ...prev,
+      current_day: payload.current_day,
+    } : null);
+    
+    // Clear all dice pools since it's a new day
+    setDicePools({});
+  }, []);
+
+  // Connect to WebSocket
+  const { isConnected } = useWebSocket({
+    campaignId: Number(id),
+    onRollComplete: onWsRollComplete,
+    onDicePoolUpdated: handleDicePoolUpdated,
+    onChallengeUpdate: handleChallengeUpdate,
+    onDayIncremented: handleDayIncremented,
+  });
 
   useEffect(() => {
     if (id) {
@@ -118,13 +192,13 @@ export default function CampaignDetail() {
     // Set up for rolling with auto-selected die
     setSelectedChallenge(challenge);
     setSelectedCharacter(myCharacter);
-    setSelectedDie(availableDie); // Auto-select first available die
-};
+    setSelectedDie(availableDie);
+  };
 
   const handleCompleteChallenge = async (challengeId: number) => {
     try {
       await challengeService.complete(challengeId);
-      loadCampaignData(); // Refresh to remove completed challenge
+      // WebSocket will handle updating the challenges list
     } catch (error) {
       console.error('Failed to complete challenge:', error);
     }
@@ -135,15 +209,13 @@ export default function CampaignDetail() {
     
     setSelectedCharacter(character);
     setSelectedDie(die);
-    // selectedChallenge might already be set, or null for free roll
   };
 
-  const handleRollComplete = () => {
+  const handleModalSuccess = () => {
     setSelectedCharacter(null);
     setSelectedDie(null);
     setSelectedChallenge(null);
-    setRefreshCounter(prev => prev + 1);
-    loadCampaignData(); // Refresh everything
+    // WebSocket will handle the refresh
   };
 
   const isGM = campaign && user && campaign.gm_user_id === user.id;
@@ -178,7 +250,16 @@ export default function CampaignDetail() {
                 ← Back
               </button>
               <div>
-                <h1 className="text-2xl font-bold">{campaign.name}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold">{campaign.name}</h1>
+                  {/* WebSocket connection indicator */}
+                  <span 
+                    className={`inline-block w-2 h-2 rounded-full ${
+                      isConnected ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                    title={isConnected ? 'Connected' : 'Disconnected'}
+                  />
+                </div>
                 <p className="text-gray-600">Day {campaign.current_day}</p>
               </div>
             </div>
@@ -277,7 +358,7 @@ export default function CampaignDetail() {
           onClose={() => setShowCreateChallengeModal(false)}
           onSuccess={() => {
             setShowCreateChallengeModal(false);
-            loadCampaignData();
+            // WebSocket will handle updating the challenges list
           }}
         />
       )}
@@ -292,7 +373,7 @@ export default function CampaignDetail() {
             setSelectedDie(null);
             setSelectedChallenge(null);
           }}
-          onSuccess={handleRollComplete}
+          onSuccess={handleModalSuccess}
         />
       )}
     </div>

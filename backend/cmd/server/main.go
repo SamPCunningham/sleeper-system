@@ -9,6 +9,7 @@ import (
 	"github.com/SamPCunningham/sleeper-system/internal/database"
 	"github.com/SamPCunningham/sleeper-system/internal/handlers"
 	customMiddleware "github.com/SamPCunningham/sleeper-system/internal/middleware"
+	"github.com/SamPCunningham/sleeper-system/internal/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -31,11 +32,16 @@ func main() {
 	}
 	defer db.Close()
 
+	wsHub := websocket.NewHub()
+	go wsHub.Run()
+
+	wsHandler := websocket.NewHandler(wsHub)
+
 	authHandler := handlers.NewAuthHandler(db)
-	campaignHandler := handlers.NewCampaignHandler(db)
+	campaignHandler := handlers.NewCampaignHandler(db, wsHub)
 	characterHandler := handlers.NewCharacterHandler(db)
-	diceHandler := handlers.NewDiceHandler(db)
-	challengeHandler := handlers.NewChallengeHandler(db)
+	diceHandler := handlers.NewDiceHandler(db, wsHub)
+	challengeHandler := handlers.NewChallengeHandler(db, wsHub)
 
 	r := chi.NewRouter()
 
@@ -56,6 +62,8 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "OK")
 	})
+
+	r.Get("/ws/campaigns/{campaignId}", wsHandler.ServeWS)
 
 	r.Group(func(r chi.Router) {
 		r.Use(customMiddleware.AuthMiddleware)

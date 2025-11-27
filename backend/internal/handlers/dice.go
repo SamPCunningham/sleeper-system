@@ -10,15 +10,17 @@ import (
 
 	"github.com/SamPCunningham/sleeper-system/internal/database"
 	"github.com/SamPCunningham/sleeper-system/internal/models"
+	"github.com/SamPCunningham/sleeper-system/internal/websocket"
 	"github.com/go-chi/chi/v5"
 )
 
 type DiceHandler struct {
-	db *database.Database
+	db  *database.Database
+	hub *websocket.Hub
 }
 
-func NewDiceHandler(db *database.Database) *DiceHandler {
-	return &DiceHandler{db: db}
+func NewDiceHandler(db *database.Database, hub *websocket.Hub) *DiceHandler {
+	return &DiceHandler{db: db, hub: hub}
 }
 
 // RollNewPool creates a new dice pool for a character
@@ -29,9 +31,12 @@ func (h *DiceHandler) RollNewPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get character's max_daily_dice
-	var maxDice int
-	err = h.db.Get(&maxDice, "SELECT max_daily_dice FROM characters WHERE id = $1", characterID)
+	// Get character's max_daily_dice and campaign_id
+	var charInfo struct {
+		MaxDice    int `db:"max_daily_dice"`
+		CampaignID int `db:"campaign_id"`
+	}
+	err = h.db.Get(&charInfo, "SELECT max_daily_dice, campaign_id FROM characters WHERE id = $1", characterID)
 	if err != nil {
 		http.Error(w, "Character not found", http.StatusNotFound)
 		return
@@ -51,7 +56,7 @@ func (h *DiceHandler) RollNewPool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Roll and insert dice
-	dice := make([]models.PoolDie, maxDice)
+	dice := make([]models.PoolDie, charInfo.MaxDice)
 	diceQuery := `
 		INSERT INTO pool_dice (pool_id, die_result, position)
 		VALUES ($1, $2, $3)
@@ -59,7 +64,7 @@ func (h *DiceHandler) RollNewPool(w http.ResponseWriter, r *http.Request) {
 	`
 
 	rand.Seed(time.Now().UnixNano())
-	for i := 0; i < maxDice; i++ {
+	for i := 0; i < charInfo.MaxDice; i++ {
 		result := rand.Intn(6) + 1 // 1-6
 		err = h.db.QueryRowx(diceQuery, pool.ID, result, i+1).StructScan(&dice[i])
 		if err != nil {
@@ -72,6 +77,12 @@ func (h *DiceHandler) RollNewPool(w http.ResponseWriter, r *http.Request) {
 		DicePool: pool,
 		Dice:     dice,
 	}
+
+	// Broadcast dice pool update
+	h.hub.BroadcastToCampaign(charInfo.CampaignID, websocket.MessageTypeDicePoolUpdated, map[string]any{
+		"character_id": characterID,
+		"pool":         response,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -184,16 +195,25 @@ func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the d6 result from the pool die
-	var d6Result int
-	err := h.db.Get(&d6Result, "SELECT die_result FROM pool_dice WHERE id = $1", req.PoolDiceID)
+	// Get the d6 result from the pool die and character info
+	var dieInfo struct {
+		DieResult  int `db:"die_result"`
+		CampaignID int `db:"campaign_id"`
+	}
+	err := h.db.Get(&dieInfo, `
+		SELECT pd.die_result, c.campaign_id 
+		FROM pool_dice pd
+		JOIN dice_pools dp ON pd.pool_id = dp.id
+		JOIN characters c ON dp.character_id = c.id
+		WHERE pd.id = $1
+	`, req.PoolDiceID)
 	if err != nil {
 		http.Error(w, "Pool die not found", http.StatusNotFound)
 		return
 	}
 
 	// Calculate modified d6
-	modifiedD6 := d6Result
+	modifiedD6 := dieInfo.DieResult
 	if req.SkillApplied {
 		// Get character's skill modifier
 		var skillMod int
@@ -215,7 +235,7 @@ func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Final modified d6: %d (base: %d, skill: %v, other: %d)",
-		modifiedD6, d6Result, req.SkillApplied, req.OtherModifiers)
+		modifiedD6, dieInfo.DieResult, req.SkillApplied, req.OtherModifiers)
 
 	// Calculate outcome based on modified d6 and d20
 	outcome := calculateOutcome(modifiedD6, req.D20Roll)
@@ -257,6 +277,17 @@ func (h *DiceHandler) RecordRoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error marking die as used", http.StatusInternalServerError)
 		return
 	}
+
+	// Get character name for the broadcast
+	var charName string
+	h.db.Get(&charName, "SELECT name FROM characters WHERE id = $1", req.CharacterID)
+
+	// Broadcast roll completion to campaign
+	h.hub.BroadcastToCampaign(dieInfo.CampaignID, websocket.MessageTypeRollComplete, map[string]any{
+		"roll":           rollHistory,
+		"character_name": charName,
+		"character_id":   req.CharacterID,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -347,6 +378,14 @@ func (h *DiceHandler) ManualRollPool(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get campaign ID for broadcast
+	var campaignID int
+	err = h.db.Get(&campaignID, "SELECT campaign_id FROM characters WHERE id = $1", characterID)
+	if err != nil {
+		http.Error(w, "Character not found", http.StatusNotFound)
+		return
+	}
+
 	// Create new dice pool
 	var pool models.DicePool
 	poolQuery := `
@@ -380,6 +419,12 @@ func (h *DiceHandler) ManualRollPool(w http.ResponseWriter, r *http.Request) {
 		DicePool: pool,
 		Dice:     dice,
 	}
+
+	// Broadcast dice pool update
+	h.hub.BroadcastToCampaign(campaignID, websocket.MessageTypeDicePoolUpdated, map[string]any{
+		"character_id": characterID,
+		"pool":         response,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

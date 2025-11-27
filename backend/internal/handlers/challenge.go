@@ -9,15 +9,17 @@ import (
 	"github.com/SamPCunningham/sleeper-system/internal/database"
 	"github.com/SamPCunningham/sleeper-system/internal/middleware"
 	"github.com/SamPCunningham/sleeper-system/internal/models"
+	"github.com/SamPCunningham/sleeper-system/internal/websocket"
 	"github.com/go-chi/chi/v5"
 )
 
 type ChallengeHandler struct {
-	db *database.Database
+	db  *database.Database
+	hub *websocket.Hub
 }
 
-func NewChallengeHandler(db *database.Database) *ChallengeHandler {
-	return &ChallengeHandler{db: db}
+func NewChallengeHandler(db *database.Database, hub *websocket.Hub) *ChallengeHandler {
+	return &ChallengeHandler{db: db, hub: hub}
 }
 
 func (h *ChallengeHandler) ListByCampaign(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,12 @@ func (h *ChallengeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast new challenge to campaign
+	h.hub.BroadcastToCampaign(req.CampaignID, websocket.MessageTypeChallengeUpdate, map[string]any{
+		"action":    "created",
+		"challenge": challenge,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(challenge)
@@ -109,16 +117,19 @@ func (h *ChallengeHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user is GM
-	var gmUserID int
+	// Check if user is GM and get campaign ID
+	var campaignInfo struct {
+		GMUserID   int `db:"gm_user_id"`
+		CampaignID int `db:"campaign_id"`
+	}
 	query := `
-		SELECT c.gm_user_id 
+		SELECT c.gm_user_id, ch.campaign_id
 		FROM challenges ch
 		JOIN campaigns c ON ch.campaign_id = c.id
 		WHERE ch.id = $1
 	`
-	err = h.db.Get(&gmUserID, query, challengeID)
-	if err != nil || gmUserID != userID {
+	err = h.db.Get(&campaignInfo, query, challengeID)
+	if err != nil || campaignInfo.GMUserID != userID {
 		http.Error(w, "Only the GM can mark challenges complete", http.StatusForbidden)
 		return
 	}
@@ -128,13 +139,19 @@ func (h *ChallengeHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		UPDATE challenges
 		SET is_active = false
 		WHERE id = $1
-		RETURNING id, campaign_id, created_by_user_id, description, difficulty_modifier, is_active, created_at
+		RETURNING id, campaign_id, created_by_user_id, description, difficulty_modifier, is_group_challenge, is_active, created_at
 	`
 	err = h.db.QueryRowx(updateQuery, challengeID).StructScan(&challenge)
 	if err != nil {
 		http.Error(w, "Error completing challenge", http.StatusInternalServerError)
 		return
 	}
+
+	// Broadcast challenge completion
+	h.hub.BroadcastToCampaign(campaignInfo.CampaignID, websocket.MessageTypeChallengeUpdate, map[string]any{
+		"action":    "completed",
+		"challenge": challenge,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(challenge)
