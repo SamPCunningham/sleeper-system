@@ -40,12 +40,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert user
+	// Insert user (defaults to 'player' role)
 	var user models.User
 	query := `
-		INSERT INTO users (username, email, password_hash)
-		VALUES ($1, $2, $3)
-		RETURNING id, username, email, created_at
+		INSERT INTO users (username, email, password_hash, system_role)
+		VALUES ($1, $2, $3, 'player')
+		RETURNING id, username, email, system_role, created_at
 	`
 	err = h.db.QueryRowx(query, req.Username, req.Email, string(hashedPassword)).StructScan(&user)
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT
-	token, err := generateToken(user.ID)
+	token, err := generateToken(user.ID, user.SystemRole)
 	if err != nil {
 		http.Error(w, "Error generating token", http.StatusInternalServerError)
 		return
@@ -78,7 +78,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Get user by email
 	var user models.User
-	query := `SELECT id, username, email, password_hash, created_at FROM users WHERE email = $1`
+	query := `SELECT id, username, email, password_hash, system_role, created_at FROM users WHERE email = $1`
 	err := h.db.Get(&user, query, req.Email)
 	if err != nil {
 		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
@@ -92,8 +92,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate JWT
-	token, err := generateToken(user.ID)
+	// Generate JWT with role
+	token, err := generateToken(user.ID, user.SystemRole)
 	if err != nil {
 		http.Error(w, "Error generating token", http.StatusInternalServerError)
 		return
@@ -108,9 +108,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func generateToken(userID int) (string, error) {
+func generateToken(userID int, role string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
+		"role":    role,
 		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(), // 7 days
 	})
 
