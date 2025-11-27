@@ -12,7 +12,10 @@ import (
 
 type contextKey string
 
-const UserIDKey contextKey = "userID"
+const (
+	UserIDKey   contextKey = "userID"
+	UserRoleKey contextKey = "userRole"
+)
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +57,14 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Get role from token (default to "player" for backward compatibility)
+		userRole, _ := claims["role"].(string)
+		if userRole == "" {
+			userRole = "player"
+		}
+
 		ctx := context.WithValue(r.Context(), UserIDKey, int(userID))
+		ctx = context.WithValue(ctx, UserRoleKey, userRole)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -62,4 +72,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 func GetUserID(ctx context.Context) (int, bool) {
 	userID, ok := ctx.Value(UserIDKey).(int)
 	return userID, ok
+}
+
+func GetUserRole(ctx context.Context) (string, bool) {
+	role, ok := ctx.Value(UserRoleKey).(string)
+	return role, ok
 }

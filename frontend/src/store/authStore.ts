@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { User } from '../types';
+import { ROLE_ADMIN, ROLE_GAME_MASTER } from '../types';
 
 const AUTH_TOKEN_KEY = import.meta.env.VITE_AUTH_TOKEN_KEY || 'sleeper_auth_token';
 const AUTH_USER_KEY = 'sleeper_auth_user';
@@ -28,6 +29,8 @@ interface AuthState {
   setAuth: (user: User, token: string) => void;
   logout: () => void;
   isAuthenticated: () => boolean;
+  isAdmin: () => boolean;
+  canCreateCampaigns: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -48,4 +51,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: () => {
     return !!get().token;
   },
+
+  isAdmin: () => {
+    return get().user?.system_role === ROLE_ADMIN;
+  },
+
+  canCreateCampaigns: () => {
+    const role = get().user?.system_role;
+    return role === ROLE_ADMIN || role === ROLE_GAME_MASTER;
+  }
 }));

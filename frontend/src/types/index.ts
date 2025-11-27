@@ -1,7 +1,14 @@
+export const ROLE_ADMIN = 'admin';
+export const ROLE_GAME_MASTER = 'game_master';
+export const ROLE_PLAYER = 'player';
+
+export type SystemRole = 'admin' | 'game_master' | 'player';
+
 export interface User {
   id: number;
   username: string;
   email: string;
+  system_role: SystemRole;
   created_at: string;
 }
 
@@ -81,4 +88,28 @@ export interface ChallengeWithStats extends Challenge {
 
 export interface RollHistoryWithCharacter extends RollHistory {
   character_name: string;
+}
+
+export interface CampaignMember {
+  id: number;
+  campaign_id: number;
+  user_id: number;
+  joined_at: string;
+  username: string;
+  email: string;
+  system_role: SystemRole;
+  is_gm: boolean;
+}
+
+export interface CreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  system_role: SystemRole;
+}
+
+export interface UpdateUserRequest {
+  username?: string;
+  email?: string;
+  system_role?: SystemRole;
 }

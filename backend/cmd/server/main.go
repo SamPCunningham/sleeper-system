@@ -38,6 +38,7 @@ func main() {
 	wsHandler := websocket.NewHandler(wsHub)
 
 	authHandler := handlers.NewAuthHandler(db)
+	adminHandler := handlers.NewAdminHandler(db)
 	campaignHandler := handlers.NewCampaignHandler(db, wsHub)
 	characterHandler := handlers.NewCharacterHandler(db)
 	diceHandler := handlers.NewDiceHandler(db, wsHub)
@@ -68,11 +69,25 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(customMiddleware.AuthMiddleware)
 
+		r.Route("/api/admin", func(r chi.Router) {
+			r.Use(customMiddleware.RequireAdmin)
+			r.Get("/users", adminHandler.ListUsers)
+			r.Post("/users", adminHandler.CreateUser)
+			r.Get("/users/{id}", adminHandler.GetUser)
+			r.Put("/users/{id}", adminHandler.UpdateUser)
+			r.Post("/users/{id}/set-password", adminHandler.SetPassword)
+			r.Delete("/users/{id}", adminHandler.DeleteUser)
+		})
+
 		r.Post("/api/campaigns", campaignHandler.Create)
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Get("/api/campaigns/{id}", campaignHandler.Get)
 		r.Post("/api/campaigns/{id}/increment-day", campaignHandler.IncrementDay)
 		r.Get("/api/campaigns/{id}/users", campaignHandler.ListUsers)
+
+		r.Get("/api/campaigns/{id}/members", campaignHandler.ListMembers)
+		r.Post("/api/campaigns/{id}/members", campaignHandler.AddMember)
+		r.Delete("/api/campaigns/{id}/members", campaignHandler.RemoveMember)
 
 		r.Post("/api/characters", characterHandler.Create)
 		r.Get("/api/campaigns/{campaignId}/characters", characterHandler.ListByCampaign)

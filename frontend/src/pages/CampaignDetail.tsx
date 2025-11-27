@@ -12,12 +12,13 @@ import CreateChallengeModal from '../components/CreateChallengeModal';
 import ChallengeList from '../components/ChallengeList';
 import DiceRollModal from '../components/DiceRollModal';
 import RollHistoryFeed from '../components/RollHistoryFeed';
+import CampaignMembersPanel from '../components/CampaignMembersPanel';
 import type { Campaign, Character, DicePool, ChallengeWithStats, PoolDie } from '../types';
 
 export default function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((state) => state.user);
+  const { user, isAdmin } = useAuthStore();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -219,6 +220,7 @@ export default function CampaignDetail() {
   };
 
   const isGM = campaign && user && campaign.gm_user_id === user.id;
+  const canManageCampaign = isGM || isAdmin();
 
   if (isLoading) {
     return (
@@ -277,66 +279,82 @@ export default function CampaignDetail() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {/* Challenges Section */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Active Challenges</h2>
-            {isGM && (
-              <button
-                onClick={() => setShowCreateChallengeModal(true)}
-                className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700"
-              >
-                Create Challenge
-              </button>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column - Main Content */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Challenges Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Active Challenges</h2>
+                {isGM && (
+                  <button
+                    onClick={() => setShowCreateChallengeModal(true)}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700"
+                  >
+                    Create Challenge
+                  </button>
+                )}
+              </div>
+              <ChallengeList
+                challenges={challenges}
+                isGM={!!isGM}
+                onAttemptChallenge={handleAttemptChallenge}
+                onCompleteChallenge={handleCompleteChallenge}
+              />
+            </div>
+
+            {/* Characters Section */}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Characters</h2>
+                <button
+                  onClick={() => setShowCreateCharacterModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                >
+                  Create Character
+                </button>
+              </div>
+
+              {characters.length === 0 ? (
+                <div className="bg-white rounded-lg shadow p-8 text-center">
+                  <p className="text-gray-600">No characters yet. Create one to get started!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {characters.map((character) => (
+                    <CharacterCard
+                      key={character.id}
+                      character={character}
+                      gmUserId={campaign.gm_user_id}
+                      dicePool={dicePools[character.id]}
+                      onRollPool={() => handleRollPool(character.id)}
+                      onViewDetails={() => navigate(`/characters/${character.id}`)}
+                      onDiceUsed={loadCampaignData}
+                      onDieClick={(die) => handleDieClick(character, die)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column - Sidebar */}
+          <div className="space-y-6">
+            {/* Roll History Feed */}
+            <RollHistoryFeed 
+              campaignId={campaign.id} 
+              refreshTrigger={refreshCounter}
+            />
+
+            {/* Campaign Members Panel - Only for GM or Admin */}
+            {canManageCampaign && (
+              <CampaignMembersPanel
+                campaignId={campaign.id}
+                gmUserId={campaign.gm_user_id}
+              />
             )}
           </div>
-          <ChallengeList
-            challenges={challenges}
-            isGM={!!isGM}
-            onAttemptChallenge={handleAttemptChallenge}
-            onCompleteChallenge={handleCompleteChallenge}
-          />
         </div>
-
-        {/* Roll History Feed */}
-        <div className="mb-8">
-          <RollHistoryFeed 
-            campaignId={campaign.id} 
-            refreshTrigger={refreshCounter}
-          />
-        </div>
-
-        {/* Characters Section */}
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">Characters</h2>
-          <button
-            onClick={() => setShowCreateCharacterModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-          >
-            Create Character
-          </button>
-        </div>
-
-        {characters.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <p className="text-gray-600 mb-4">No characters yet. Create one to get started!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {characters.map((character) => (
-              <CharacterCard
-                key={character.id}
-                character={character}
-                gmUserId={campaign.gm_user_id}
-                dicePool={dicePools[character.id]}
-                onRollPool={() => handleRollPool(character.id)}
-                onViewDetails={() => navigate(`/characters/${character.id}`)}
-                onDiceUsed={loadCampaignData}
-                onDieClick={(die) => handleDieClick(character, die)}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Modals */}
