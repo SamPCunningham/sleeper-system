@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { WS_HOST } from '../services/api';
 
 export type MessageType = 
   | 'roll_complete'
@@ -45,7 +46,7 @@ export function useWebSocket({
 
     // Build WebSocket URL
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = import.meta.env.VITE_WS_HOST || 'localhost:8090';
+    const wsHost = WS_HOST;
     const wsUrl = `${wsProtocol}//${wsHost}/ws/campaigns/${campaignId}?user_id=${user.id}`;
 
     console.log('Connecting to WebSocket:', wsUrl);
