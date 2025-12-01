@@ -39,6 +39,11 @@ export default function CampaignDetail() {
   const [showDicePoolModal, setShowDicePoolModal] = useState(false);
   const [selectedCharacterForPool, setSelectedCharacterForPool] = useState<Character | null>(null);
   const [isEditingPool, setIsEditingPool] = useState(false);
+  const [dieSelectionState, setDieSelectionState] = useState<{
+    challenge: ChallengeWithStats;
+    character: Character;
+    dice: PoolDie[];
+  } | null>(null); 
 
   // WebSocket handlers
   const onWsRollComplete = useCallback((payload: any) => {
@@ -206,16 +211,25 @@ export default function CampaignDetail() {
     }
 
     // Find first available die
-    const availableDie = pool.dice.find((d) => !d.is_used);
-    if (!availableDie) {
+    const availableDice = pool.dice.filter((d) => !d.is_used);
+    if (availableDice.length === 0) {
       alert('No available dice!');
       return;
     }
 
-    // Set up for rolling with auto-selected die
-    setSelectedChallenge(challenge);
-    setSelectedCharacter(myCharacter);
-    setSelectedDie(availableDie);
+    if (availableDice.length === 1) {
+      // Set up for rolling with auto-selected die
+      setSelectedChallenge(challenge);
+      setSelectedCharacter(myCharacter);
+      setSelectedDie(availableDice[0]);
+      return;
+    }
+
+    setDieSelectionState({
+      challenge,
+      character: myCharacter,
+      dice: availableDice,
+    })
   };
 
   const handleCompleteChallenge = async (challengeId: number) => {
@@ -240,6 +254,22 @@ export default function CampaignDetail() {
     setSelectedChallenge(null);
     // WebSocket will handle the refresh
   };
+
+  const handleSelectDieForChallenge = (die: PoolDie) => {
+    if (!dieSelectionState) return;
+
+    setSelectedChallenge(dieSelectionState.challenge);
+    setSelectedCharacter(dieSelectionState.character);
+    setSelectedDie(die);
+
+    // Close the die selection modal
+    setDieSelectionState(null);
+  };
+
+  const handleCancelDieSelection = () => {
+    setDieSelectionState(null);
+  };
+
 
   const isGM = campaign && user && campaign.gm_user_id === user.id;
   const canManageCampaign = isGM || isAdmin();
@@ -401,6 +431,46 @@ export default function CampaignDetail() {
             // WebSocket will handle updating the challenges list
           }}
         />
+      )}
+
+      {/* Die Selection Modal */}
+      {dieSelectionState && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-2">
+              Choose a Die for this Challenge
+            </h3>
+            <p className="text-sm text-gray-700 mb-4">
+              {dieSelectionState.challenge.description}
+            </p>
+
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {dieSelectionState.dice.map((die) => (
+                <button
+                  key={die.id}
+                  type="button"
+                  onClick={() => handleSelectDieForChallenge(die)}
+                  className="flex flex-col items-center justify-center border rounded-lg px-3 py-2 hover:bg-blue-50"
+                >
+                  <span className="text-xs text-gray-500 mb-1">Die</span>
+                  <span className="inline-flex items-center justify-center w-10 h-10 text-lg font-bold rounded border border-blue-600 text-blue-600 bg-blue-50">
+                    {die.die_result}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCancelDieSelection}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedCharacter && selectedDie && (

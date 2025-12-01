@@ -67,6 +67,7 @@ export interface RollHistory {
   other_modifiers: number;
   modified_d6: number | null;
   created_at: string;
+  challenge_name: string;
 }
 
 export interface Challenge {
