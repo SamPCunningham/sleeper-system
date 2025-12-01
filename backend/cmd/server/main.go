@@ -14,7 +14,81 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+func runMigrations(databaseURL string) error {
+	m, err := migrate.New(
+		"file://migrations",
+		databaseURL,
+	)
+	if err != nil {
+		return fmt.Errorf("migration init failed: %w", err)
+	}
+	defer m.Close()
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("migration up failed: %w", err)
+	}
+
+	log.Println("✅ Database migrations completed successfully")
+	return nil
+}
+
+func seedAdminUser(db *database.Database) error {
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		log.Println("ADMIN_PASSWORD not set, skipping admin user creation")
+		return nil
+	}
+
+	// Check if admin already exists
+	var count int
+	err := db.Get(&count, "SELECT COUNT(*) FROM users WHERE system_role = 'admin'")
+	if err != nil {
+		return fmt.Errorf("error checking for existing admin: %w", err)
+	}
+	if count > 0 {
+		log.Println("Admin user already exists, skipping creation")
+		return nil
+	}
+
+	// Get admin details from env or use defaults
+	adminUsername := os.Getenv("ADMIN_USERNAME")
+	if adminUsername == "" {
+		adminUsername = "admin"
+	}
+	adminEmail := os.Getenv("ADMIN_EMAIL")
+	if adminEmail == "" {
+		adminEmail = "admin@sleeper.local"
+	}
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("error hashing password: %w", err)
+	}
+
+	// Insert admin user
+	query := `
+        INSERT INTO users (username, email, password_hash, system_role)
+        VALUES ($1, $2, $3, 'admin')
+        RETURNING id
+    `
+	var userID int
+	err = db.QueryRow(query, adminUsername, adminEmail, string(hashedPassword)).Scan(&userID)
+	if err != nil {
+		return fmt.Errorf("error creating admin user: %w", err)
+	}
+
+	log.Printf("✅ Admin user created successfully! (ID: %d, Username: %s, Email: %s)", userID, adminUsername, adminEmail)
+	return nil
+}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -26,11 +100,20 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
+	log.Println("Running database migrations...")
+	if err := runMigrations(databaseURL); err != nil {
+		log.Printf(" Migration error (continuing anyway): %v", err)
+	}
+
 	db, err := database.NewDatabase(databaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
+
+	if err := seedAdminUser(db); err != nil {
+		log.Printf(" Seed error (continuing anyway): %v", err)
+	}
 
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
