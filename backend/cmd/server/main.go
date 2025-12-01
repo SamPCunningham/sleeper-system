@@ -100,6 +100,7 @@ func main() {
 		r.Post("/api/rolls", diceHandler.RecordRoll)
 		r.Get("/api/rolls", diceHandler.GetRollHistory)
 		r.Post("/api/characters/{characterId}/dice-pool/manual", diceHandler.ManualRollPool)
+		r.Put("/api/dice/{dieId}", diceHandler.UpdatePoolDie)
 
 		r.Post("/api/challenges", challengeHandler.Create)
 		r.Get("/api/campaigns/{campaignId}/challenges", challengeHandler.ListByCampaign)

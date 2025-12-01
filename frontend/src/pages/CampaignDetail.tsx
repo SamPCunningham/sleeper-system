@@ -10,6 +10,7 @@ import CharacterCard from '../components/CharacterCard';
 import CreateCharacterModal from '../components/CreateCharacterModal';
 import CreateChallengeModal from '../components/CreateChallengeModal';
 import ChallengeList from '../components/ChallengeList';
+import DicePoolModal from '../components/DicePoolModal';
 import DiceRollModal from '../components/DiceRollModal';
 import RollHistoryFeed from '../components/RollHistoryFeed';
 import CampaignMembersPanel from '../components/CampaignMembersPanel';
@@ -35,6 +36,9 @@ export default function CampaignDetail() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [selectedDie, setSelectedDie] = useState<PoolDie | null>(null);
   const [selectedChallenge, setSelectedChallenge] = useState<ChallengeWithStats | null>(null);
+  const [showDicePoolModal, setShowDicePoolModal] = useState(false);
+  const [selectedCharacterForPool, setSelectedCharacterForPool] = useState<Character | null>(null);
+  const [isEditingPool, setIsEditingPool] = useState(false);
 
   // WebSocket handlers
   const onWsRollComplete = useCallback((payload: any) => {
@@ -160,13 +164,31 @@ export default function CampaignDetail() {
   };
 
   const handleRollPool = async (characterId: number) => {
-    try {
-      const pool = await diceService.rollNewPool(characterId);
-      setDicePools((prev) => ({ ...prev, [characterId]: pool }));
-    } catch (error) {
-      console.error('Failed to roll dice pool:', error);
+    const character = characters.find(c => c.id === characterId);
+    if (character) {
+      setSelectedCharacterForPool(character);
+      setIsEditingPool(false);
+      setShowDicePoolModal(true);
     }
   };
+
+  const handleEditPool = (characterId: number) => {
+    const character = characters.find(c => c.id === characterId);
+    if (character) {
+      setSelectedCharacterForPool(character);
+      setIsEditingPool(true);
+      setShowDicePoolModal(true);
+    }
+  }
+
+  const handleDicePoolSuccess = (pool: DicePool) => {
+    if (selectedCharacterForPool) {
+      setDicePools((prev) => ({...prev, [selectedCharacterForPool.id]: pool }));
+    }
+    setShowDicePoolModal(false);
+    setSelectedCharacterForPool(null);
+    setIsEditingPool(false);
+  }
 
   const handleAttemptChallenge = (challenge: ChallengeWithStats) => {
     // Find user's character
@@ -328,6 +350,7 @@ export default function CampaignDetail() {
                       gmUserId={campaign.gm_user_id}
                       dicePool={dicePools[character.id]}
                       onRollPool={() => handleRollPool(character.id)}
+                      onEditPool={() => handleEditPool(character.id)}
                       onViewDetails={() => navigate(`/characters/${character.id}`)}
                       onDiceUsed={loadCampaignData}
                       onDieClick={(die) => handleDieClick(character, die)}
@@ -392,6 +415,20 @@ export default function CampaignDetail() {
             setSelectedChallenge(null);
           }}
           onSuccess={handleModalSuccess}
+        />
+      )}
+
+      {showDicePoolModal && selectedCharacterForPool && (
+        <DicePoolModal
+          character={selectedCharacterForPool}
+          existingPool={isEditingPool ? dicePools[selectedCharacterForPool.id] : undefined}
+          isGM={!!isGM}
+          onClose={() => {
+            setShowDicePoolModal(false);
+            setSelectedCharacterForPool(null);
+            setIsEditingPool(false);
+          }}
+          onSuccess={handleDicePoolSuccess}
         />
       )}
     </div>

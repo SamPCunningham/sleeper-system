@@ -430,3 +430,95 @@ func (h *DiceHandler) ManualRollPool(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
+
+// UpdatePoolDie updates the value of a specific die in a pool (GM only)
+func (h *DiceHandler) UpdatePoolDie(w http.ResponseWriter, r *http.Request) {
+	dieID, err := strconv.Atoi(chi.URLParam(r, "dieId"))
+	if err != nil {
+		http.Error(w, "Invalid die ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		DieResult int `json:"die_result"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate die result
+	if req.DieResult < 1 || req.DieResult > 6 {
+		http.Error(w, "Die result must be between 1 and 6", http.StatusBadRequest)
+		return
+	}
+
+	// Get campaign and character info to verify GM and broadcast
+	var info struct {
+		CampaignID  int `db:"campaign_id"`
+		CharacterID int `db:"character_id"`
+		PoolID      int `db:"pool_id"`
+	}
+	query := `
+		SELECT c.campaign_id, dp.character_id, pd.pool_id
+		FROM pool_dice pd
+		JOIN dice_pools dp ON pd.pool_id = dp.id
+		JOIN characters c ON dp.character_id = c.id
+		WHERE pd.id = $1
+	`
+	err = h.db.Get(&info, query, dieID)
+	if err != nil {
+		http.Error(w, "Die not found", http.StatusNotFound)
+		return
+	}
+
+	// Update the die value
+	var die models.PoolDie
+	updateQuery := `
+		UPDATE pool_dice
+		SET die_result = $1
+		WHERE id = $2
+		RETURNING id, pool_id, die_result, is_used, position
+	`
+	err = h.db.QueryRowx(updateQuery, req.DieResult, dieID).StructScan(&die)
+	if err != nil {
+		http.Error(w, "Error updating die", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the full updated pool to broadcast
+	var pool models.DicePool
+	poolQuery := `SELECT id, character_id, rolled_at FROM dice_pools WHERE id = $1`
+	err = h.db.Get(&pool, poolQuery, info.PoolID)
+	if err != nil {
+		http.Error(w, "Error fetching pool", http.StatusInternalServerError)
+		return
+	}
+
+	var dice []models.PoolDie
+	diceQuery := `
+		SELECT id, pool_id, die_result, is_used, position
+		FROM pool_dice
+		WHERE pool_id = $1
+		ORDER BY position ASC
+	`
+	err = h.db.Select(&dice, diceQuery, info.PoolID)
+	if err != nil {
+		http.Error(w, "Error fetching dice", http.StatusInternalServerError)
+		return
+	}
+
+	response := models.DicePoolWithDice{
+		DicePool: pool,
+		Dice:     dice,
+	}
+
+	// Broadcast dice pool update
+	h.hub.BroadcastToCampaign(info.CampaignID, websocket.MessageTypeDicePoolUpdated, map[string]any{
+		"character_id": info.CharacterID,
+		"pool":         response,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(die)
+}
