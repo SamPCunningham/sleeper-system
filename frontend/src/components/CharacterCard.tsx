@@ -9,6 +9,7 @@ interface CharacterCardProps {
   onViewDetails: () => void;
   onDiceUsed: () => void;
   onDieClick: (die: PoolDie) => void;
+  onEditPool: () => void;
 }
 
 export default function CharacterCard({
@@ -19,6 +20,7 @@ export default function CharacterCard({
   onViewDetails,
   onDiceUsed,
   onDieClick,
+  onEditPool
 }: CharacterCardProps) {
   const user = useAuthStore((state) => state.user);
   
@@ -65,14 +67,24 @@ export default function CharacterCard({
       <div className="border-t pt-4">
         <div className="flex justify-between items-center mb-2">
           <h4 className="font-semibold">Dice Pool</h4>
-          {canInteract && (
-            <button
-              onClick={onRollPool}
-              className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-            >
-              Roll New Pool
-            </button>
-          )}
+          <div className="flex gap-2">
+            {canInteract && (
+              <button
+                onClick={onRollPool}
+                className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+              >
+                Roll New Pool
+              </button>
+            )}
+            {isGM && dicePool && (
+              <button
+                onClick={onEditPool}
+                className="text-sm bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700"
+                >
+                  Edit
+                </button>
+            )}
+          </div>
         </div>
 
         {dicePool ? (
