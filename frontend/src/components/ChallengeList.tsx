@@ -1,4 +1,3 @@
-import { challengeService } from '../services/challengeService';
 import type { ChallengeWithStats } from '../types';
 
 interface ChallengeListProps {

@@ -352,7 +352,6 @@ export default function CampaignDetail() {
                       onRollPool={() => handleRollPool(character.id)}
                       onEditPool={() => handleEditPool(character.id)}
                       onViewDetails={() => navigate(`/characters/${character.id}`)}
-                      onDiceUsed={loadCampaignData}
                       onDieClick={(die) => handleDieClick(character, die)}
                     />
                   ))}

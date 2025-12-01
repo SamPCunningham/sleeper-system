@@ -7,7 +7,6 @@ interface CharacterCardProps {
   dicePool?: DicePool;
   onRollPool: () => void;
   onViewDetails: () => void;
-  onDiceUsed: () => void;
   onDieClick: (die: PoolDie) => void;
   onEditPool: () => void;
 }
@@ -18,7 +17,6 @@ export default function CharacterCard({
   dicePool,
   onRollPool,
   onViewDetails,
-  onDiceUsed,
   onDieClick,
   onEditPool
 }: CharacterCardProps) {
